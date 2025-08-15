@@ -19,6 +19,6 @@ $routes->group('users', ['filter' => 'jwt'], function ($routes) {
     $routes->get('/', 'User::index');
     $routes->get('(:num)', 'User::show/$1');
     $routes->post('/', 'User::create');
-    $routes->put('(:num)', 'User::update/$1');
+    $routes->post('(:num)', 'User::update/$1');
     $routes->delete('(:num)', 'User::delete/$1');
 });
