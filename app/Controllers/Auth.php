@@ -4,6 +4,9 @@ namespace App\Controllers;
 
 use App\Controllers\BaseController;
 use App\Models\UserModel;
+use CodeIgniter\I18n\Time;
+use App\Models\RefreshTokenModel;
+
 
 class Auth extends BaseController
 {
@@ -36,36 +39,87 @@ class Auth extends BaseController
     public function login()
     {
         $usersModel = new UserModel();
-        $email      = $this->request->getPost('email');
-        $password   = $this->request->getPost('password_hash');
+        $email    = $this->request->getPost('email');
+        $password = $this->request->getPost('password_hash');
 
         if (!$email || !$password) {
-            return $this->response->setJSON(['error' => 'Email and password are required'])->setStatusCode(422);
+            return $this->response->setJSON(['error' => 'Email and password required'])->setStatusCode(422);
         }
 
         $user = $usersModel->where('email', $email)->first();
-
         if (!$user || !password_verify($password, $user['password_hash'])) {
             return $this->response->setJSON(['error' => 'Invalid credentials'])->setStatusCode(401);
         }
 
-        // Create JWT token manually
+        // Create access token
         $payload = [
-            'sub'  => $user['id'],
-            'name' => $user['first_name'] . ' ' . $user['last_name'],
-            'role' => $user['role_id'],
-            'iat'  => time(),
-            'exp'  => time() + 900
+            'sub' => $user['id'],
+            'exp' => time() + 900, // 15 min
         ];
+        $accessToken = $this->generateJWT($payload, getenv('JWT_SECRET'));
 
-        $jwt = $this->generateJWT($payload, getenv('JWT_SECRET'));
+        // Create refresh token
+        $refreshToken = bin2hex(random_bytes(40));
+        $expiresAt = Time::now()->addDays(7);
+
+        $refreshTokenModel = new RefreshTokenModel();
+        $refreshTokenModel->insert([
+            'user_id'    => $user['id'],
+            'token'      => $refreshToken,
+            'expires_at' => $expiresAt->toDateTimeString()
+        ]);
 
         return $this->response->setJSON([
-            'access_token' => $jwt,
+            'access_token'  => $accessToken,
+            'expires_in'    => 900,
+            'refresh_token' => $refreshToken,
+            'refresh_expires_in' => 604800 // 7 days
+        ]);
+    }
+
+    public function refreshToken()
+    {
+        $refreshToken = $this->request->getPost('refresh_token');
+        if (!$refreshToken) {
+            return $this->response->setJSON(['error' => 'Refresh token required'])->setStatusCode(422);
+        }
+
+        $refreshTokenModel = new RefreshTokenModel();
+        $row = $refreshTokenModel
+            ->where('token', $refreshToken)
+            ->where('expires_at >=', Time::now()->toDateTimeString())
+            ->first();
+
+        if (!$row) {
+            return $this->response->setJSON(['error' => 'Invalid or expired refresh token'])->setStatusCode(401);
+        }
+
+        $usersModel = new UserModel();
+        $user = $usersModel->find($row['user_id']);
+
+        // Generate new access token
+        $payload = [
+            'sub' => $user['id'],
+            'exp' => time() + 900,
+        ];
+        $newAccessToken = $this->generateJWT($payload, getenv('JWT_SECRET'));
+
+        return $this->response->setJSON([
+            'access_token' => $newAccessToken,
             'expires_in'   => 900
         ]);
     }
 
+    public function logout()
+    {
+        $refreshToken = $this->request->getPost('refresh_token');
+        $refreshTokenModel = new RefreshTokenModel();
+        $refreshTokenModel->where('token', $refreshToken)->delete();
+
+        return $this->response->setJSON(['message' => 'Logged out successfully']);
+    }
+
+    // --- JWT Helpers ---
     private function generateJWT($payload, $secret)
     {
         $header = $this->base64UrlEncode(json_encode(['alg' => 'HS256', 'typ' => 'JWT']));
@@ -80,16 +134,5 @@ class Auth extends BaseController
     private function base64UrlEncode($data)
     {
         return rtrim(strtr(base64_encode($data), '+/', '-_'), '=');
-    }
-
-    public function logout()
-    {
-        return $this->response->setJSON(['message' => 'Logged out successfully']);
-    }
-
-    public function refreshToken()
-    {
-        // This would require storing refresh tokens in DB and validating them
-        return $this->response->setJSON(['error' => 'Not implemented'])->setStatusCode(501);
     }
 }
