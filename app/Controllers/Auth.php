@@ -14,7 +14,22 @@ class Auth extends BaseController
     public function register()
     {
         $usersModel = new UserModel();
-        $postData   = $this->request->getPost();
+
+        // Handle both JSON and form data
+        $contentType = $this->request->getHeaderLine('Content-Type');
+
+        if (strpos($contentType, 'application/json') !== false) {
+            $postData = $this->request->getJSON(true); // true for associative array
+        } else {
+            $postData = $this->request->getPost();
+        }
+
+        // Add safety check
+        if (!isset($postData['password_hash'])) {
+            return $this->response
+                ->setJSON(['error' => 'Password field is required'])
+                ->setStatusCode(422);
+        }
 
         // Apply model validation
         if (!$this->validate($usersModel->getValidationRules())) {
@@ -50,8 +65,21 @@ class Auth extends BaseController
     public function login()
     {
         $usersModel = new UserModel();
-        $email    = $this->request->getPost('email');
-        $password = $this->request->getPost('password_hash');
+
+        // Handle both JSON and form data
+        $contentType = $this->request->getHeaderLine('Content-Type');
+
+        if (strpos($contentType, 'application/json') !== false) {
+            $postData = $this->request->getJSON(true); // true for associative array
+        } else {
+            $postData = $this->request->getPost();
+        }
+
+        // FIX: Use the parsed $postData instead of getPost()
+        $email    = $postData['email'] ?? null;
+        $password = $postData['password_hash'] ?? null;
+
+        // dd($email);
 
         if (!$email || !$password) {
             return $this->response->setJSON(['error' => 'Email and password required'])->setStatusCode(422);
@@ -91,7 +119,6 @@ class Auth extends BaseController
             'ip'       => $this->request->getIPAddress()
         ]));
         $emailService->send();
-
 
 
         return $this->response->setJSON([

@@ -31,7 +31,14 @@ class User extends BaseController
     public function create()
     {
         $userModel = new UserModel();
-        $data = $this->request->getPost();
+        // Handle both JSON and form data
+        $contentType = $this->request->getHeaderLine('Content-Type');
+
+        if (strpos($contentType, 'application/json') !== false) {
+            $data = $this->request->getJSON(true); // true for associative array
+        } else {
+            $data = $this->request->getPost();
+        }
 
         if (!$this->validate($userModel->getValidationRules())) {
             return $this->response->setJSON(['errors' => $this->validator->getErrors()])->setStatusCode(422);
