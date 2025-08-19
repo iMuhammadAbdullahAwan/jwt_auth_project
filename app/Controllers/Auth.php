@@ -6,7 +6,8 @@ use App\Controllers\BaseController;
 use App\Models\UserModel;
 use CodeIgniter\I18n\Time;
 use App\Models\RefreshTokenModel;
-
+use Config\Services;
+use App\Models\PasswordResetModel;
 
 class Auth extends BaseController
 {
@@ -27,6 +28,16 @@ class Auth extends BaseController
 
         // Insert into DB
         $userId = $usersModel->insert($postData);
+
+        // Send Welcome Email
+        $email = Services::email();
+        $email->setFrom(getenv('email.fromEmail'), getenv('email.fromName'));
+        $email->setTo($postData['email']);
+        $email->setSubject('🎉 Welcome to MyApp!');
+        $email->setMessage(view('emails/welcome', [
+            'first_name' => $postData['first_name']
+        ]));
+        $email->send();
 
         return $this->response
             ->setJSON([
@@ -68,6 +79,20 @@ class Auth extends BaseController
             'token'      => $refreshToken,
             'expires_at' => $expiresAt->toDateTimeString()
         ]);
+
+        // Send Login Alert Email
+        $emailService = \Config\Services::email();
+        $emailService->setFrom(getenv('email.fromEmail'), getenv('email.fromName'));
+        $emailService->setTo($user['email']);
+        $emailService->setSubject('🔐 Login Alert');
+        $emailService->setMessage(view('emails/login_alert', [
+            'first_name' => $user['first_name'],
+            'time'     => date('Y-m-d H:i:s'),
+            'ip'       => $this->request->getIPAddress()
+        ]));
+        $emailService->send();
+
+
 
         return $this->response->setJSON([
             'access_token'  => $accessToken,
@@ -117,6 +142,69 @@ class Auth extends BaseController
         $refreshTokenModel->where('token', $refreshToken)->delete();
 
         return $this->response->setJSON(['message' => 'Logged out successfully']);
+    }
+
+    public function forgotPassword()
+    {
+        $userModel = new UserModel();
+        $resetModel = new PasswordResetModel();
+        $email = $this->request->getVar('email');
+
+        $user = $userModel->where('email', $email)->first();
+        if (!$user) {
+            return $this->response->setJSON(['error' => 'Email not found'])->setStatusCode(404);
+        }
+
+        $token = bin2hex(random_bytes(32));
+
+        $resetModel->insert([
+            'email'      => $email,
+            'token'      => $token,
+            'expires_at' => date('Y-m-d H:i:s', strtotime('+1 hour'))
+        ]);
+
+        $resetLink = base_url("reset-password?token={$token}");
+
+        $emailService = Services::email();
+        $emailService->setTo($email);
+        $emailService->setSubject('🔑 Reset your password');
+        $emailService->setMessage("Click here to reset your password: <a href='{$resetLink}'>Reset Password</a>");
+        $emailService->send();
+
+        return $this->response->setJSON([
+            'message' => 'Reset link sent to email',
+            'restLink' => $resetLink,
+            'token' => $token,
+
+        ]);
+    }
+
+    public function resetPassword()
+    {
+        $resetModel = new PasswordResetModel();
+        $userModel  = new UserModel();
+
+        $token = $this->request->getVar('token');
+        $newPassword = $this->request->getVar('password_hash');
+
+        $reset = $resetModel
+            ->where('token', $token)
+            ->where('expires_at >=', date('Y-m-d H:i:s'))
+            ->first();
+
+        if (!$reset) {
+            return $this->response->setJSON(['error' => 'Invalid or expired token'])->setStatusCode(400);
+        }
+
+        $hashedPassword = password_hash($newPassword, PASSWORD_BCRYPT);
+        $userModel
+            ->where('email', $reset['email'])
+            ->set(['password_hash' => $hashedPassword])
+            ->update();
+
+        $resetModel->where('token', $token)->delete();
+
+        return $this->response->setJSON(['message' => 'Password updated successfully']);
     }
 
     // --- JWT Helpers ---
