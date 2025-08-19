@@ -20,7 +20,7 @@ $routes->post('refresh', 'Auth::refreshToken', ['filter' => 'jwt']);
 
 // Password reset routes
 $routes->post('forgot-password', 'Auth::forgotPassword');
-$routes->get('reset-password', 'Auth::resetPassword');
+$routes->post('reset-password', 'Auth::resetPassword');
 
 // User management (protected by JWT)
 $routes->group('users', ['filter' => 'jwt'], function ($routes) {

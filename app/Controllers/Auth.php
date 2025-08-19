@@ -175,34 +175,55 @@ class Auth extends BaseController
     {
         $userModel = new UserModel();
         $resetModel = new PasswordResetModel();
-        $email = $this->request->getVar('email');
+
+        // Handle both JSON and form data
+        $contentType = $this->request->getHeaderLine('Content-Type');
+        if (strpos($contentType, 'application/json') !== false) {
+            $data = $this->request->getJSON(true);
+            $email = $data['email'] ?? null;
+        } else {
+            $email = $this->request->getVar('email');
+        }
+
+        if (!$email) {
+            return $this->response->setJSON(['error' => 'Email is required'])->setStatusCode(422);
+        }
 
         $user = $userModel->where('email', $email)->first();
         if (!$user) {
             return $this->response->setJSON(['error' => 'Email not found'])->setStatusCode(404);
         }
 
-        $token = bin2hex(random_bytes(32));
+        // Clean up any existing tokens for this email
+        $resetModel->where('email', $email)->delete();
 
+        $token = bin2hex(random_bytes(32));
         $resetModel->insert([
             'email'      => $email,
             'token'      => $token,
             'expires_at' => date('Y-m-d H:i:s', strtotime('+1 hour'))
         ]);
 
-        $resetLink = base_url("reset-password?token={$token}");
+        // Create reset link for frontend
+        $resetLink = "http://localhost:5173/reset-password?token={$token}";
 
         $emailService = Services::email();
+        $emailService->setFrom(getenv('email.fromEmail'), getenv('email.fromName'));
         $emailService->setTo($email);
         $emailService->setSubject('🔑 Reset your password');
-        $emailService->setMessage("Click here to reset your password: <a href='{$resetLink}'>Reset Password</a>");
+        $emailService->setMessage(view('emails/password_reset', [
+            'first_name' => $user['first_name'],
+            'reset_link' => $resetLink,
+            'token' => $token
+        ]));
         $emailService->send();
 
         return $this->response->setJSON([
-            'message' => 'Reset link sent to email',
-            'restLink' => $resetLink,
-            'token' => $token,
-
+            'message' => 'Reset link sent to email successfully',
+            'debug' => [
+                'reset_link' => $resetLink,
+                'token' => $token
+            ]
         ]);
     }
 
@@ -211,8 +232,30 @@ class Auth extends BaseController
         $resetModel = new PasswordResetModel();
         $userModel  = new UserModel();
 
-        $token = $this->request->getVar('token');
-        $newPassword = $this->request->getVar('password_hash');
+        // Handle both JSON and form data
+        $contentType = $this->request->getHeaderLine('Content-Type');
+        if (strpos($contentType, 'application/json') !== false) {
+            $data = $this->request->getJSON(true);
+            $token = $data['token'] ?? null;
+            $newPassword = $data['password'] ?? $data['password_hash'] ?? null;
+        } else {
+            $token = $this->request->getVar('token');
+            $newPassword = $this->request->getVar('password') ?? $this->request->getVar('password_hash');
+        }
+
+        // Validate required fields
+        if (!$token || !$newPassword) {
+            return $this->response->setJSON([
+                'error' => 'Token and new password are required'
+            ])->setStatusCode(422);
+        }
+
+        // Validate password strength
+        if (strlen($newPassword) < 8) {
+            return $this->response->setJSON([
+                'error' => 'Password must be at least 8 characters long'
+            ])->setStatusCode(422);
+        }
 
         $reset = $resetModel
             ->where('token', $token)
@@ -220,18 +263,38 @@ class Auth extends BaseController
             ->first();
 
         if (!$reset) {
-            return $this->response->setJSON(['error' => 'Invalid or expired token'])->setStatusCode(400);
+            return $this->response->setJSON([
+                'error' => 'Invalid or expired reset token'
+            ])->setStatusCode(400);
         }
 
-        $hashedPassword = password_hash($newPassword, PASSWORD_BCRYPT);
+        // Get user for email notification
+        $user = $userModel->where('email', $reset['email'])->first();
+
+        $hashedPassword = password_hash($newPassword, PASSWORD_DEFAULT);
         $userModel
             ->where('email', $reset['email'])
             ->set(['password_hash' => $hashedPassword])
             ->update();
 
+        // Clean up used token
         $resetModel->where('token', $token)->delete();
 
-        return $this->response->setJSON(['message' => 'Password updated successfully']);
+        // Send password change confirmation email
+        $emailService = Services::email();
+        $emailService->setFrom(getenv('email.fromEmail'), getenv('email.fromName'));
+        $emailService->setTo($reset['email']);
+        $emailService->setSubject('🔐 Password Changed Successfully');
+        $emailService->setMessage(view('emails/password_changed', [
+            'first_name' => $user['first_name'] ?? 'User',
+            'time' => date('Y-m-d H:i:s'),
+            'ip' => $this->request->getIPAddress()
+        ]));
+        $emailService->send();
+
+        return $this->response->setJSON([
+            'message' => 'Password updated successfully'
+        ]);
     }
 
     // --- JWT Helpers ---
