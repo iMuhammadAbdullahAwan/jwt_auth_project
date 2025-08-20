@@ -53,14 +53,20 @@ class User extends BaseController
     public function update($id)
     {
         $userModel = new UserModel();
-        $data = $this->request->getPost();
+        // Handle both JSON and form data
+        $contentType = $this->request->getHeaderLine('Content-Type');
 
+        if (strpos($contentType, 'application/json') !== false) {
+            $data = $this->request->getJSON(true); // true for associative array
+        } else {
+            $data = $this->request->getPost();
+        }
 
         // Get all rules from model
         $allRules = $userModel->getValidationRules();
         $rules = [];
 
-        foreach ($data as $field => $value) {
+        foreach (array_keys($data) as $field) {
             if (isset($allRules[$field])) {
                 $rules[$field] = $allRules[$field];
             }
@@ -76,6 +82,13 @@ class User extends BaseController
         // Hash password if it's being updated
         if (isset($data['password_hash'])) {
             $data['password_hash'] = password_hash($data['password_hash'], PASSWORD_DEFAULT);
+        }
+
+        // Ensure there is data to update
+        if (empty($data)) {
+            return $this->response
+                ->setJSON(['error' => 'No data provided for update'])
+                ->setStatusCode(400);
         }
 
         // Attempt update
