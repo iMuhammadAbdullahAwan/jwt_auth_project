@@ -24,15 +24,8 @@ class Auth extends BaseController
             $postData = $this->request->getPost();
         }
 
-        // Add safety check
-        if (!isset($postData['password_hash'])) {
-            return $this->response
-                ->setJSON(['error' => 'Password field is required'])
-                ->setStatusCode(422);
-        }
-
-        // Apply model validation
-        if (!$this->validate($usersModel->getValidationRules())) {
+        // Apply validation from config
+        if (!$this->validate(config('Validation')->register)) {
             return $this->response
                 ->setJSON(['errors' => $this->validator->getErrors()])
                 ->setStatusCode(422);
@@ -75,15 +68,14 @@ class Auth extends BaseController
             $postData = $this->request->getPost();
         }
 
+        // Apply validation from config
+        if (!$this->validate(config('Validation')->login)) {
+            return $this->response->setJSON(['errors' => $this->validator->getErrors()])->setStatusCode(422);
+        }
+
         // FIX: Use the parsed $postData instead of getPost()
         $email    = $postData['email'] ?? null;
         $password = $postData['password_hash'] ?? null;
-
-        // dd($email);
-
-        if (!$email || !$password) {
-            return $this->response->setJSON(['error' => 'Email and password required'])->setStatusCode(422);
-        }
 
         $user = $usersModel->where('email', $email)->first();
         if (!$user || !password_verify($password, $user['password_hash'])) {
@@ -131,10 +123,21 @@ class Auth extends BaseController
 
     public function refreshToken()
     {
-        $refreshToken = $this->request->getPost('refresh_token');
-        if (!$refreshToken) {
-            return $this->response->setJSON(['error' => 'Refresh token required'])->setStatusCode(422);
+        // Handle both JSON and form data
+        $contentType = $this->request->getHeaderLine('Content-Type');
+
+        if (strpos($contentType, 'application/json') !== false) {
+            $data = $this->request->getJSON(true);
+        } else {
+            $data = $this->request->getPost();
         }
+
+        // Apply validation from config
+        if (!$this->validate(config('Validation')->refreshToken, $data)) {
+            return $this->response->setJSON(['errors' => $this->validator->getErrors()])->setStatusCode(422);
+        }
+
+        $refreshToken = $data['refresh_token'];
 
         $refreshTokenModel = new RefreshTokenModel();
         $row = $refreshTokenModel
@@ -180,14 +183,16 @@ class Auth extends BaseController
         $contentType = $this->request->getHeaderLine('Content-Type');
         if (strpos($contentType, 'application/json') !== false) {
             $data = $this->request->getJSON(true);
-            $email = $data['email'] ?? null;
         } else {
-            $email = $this->request->getVar('email');
+            $data = $this->request->getPost();
         }
 
-        if (!$email) {
-            return $this->response->setJSON(['error' => 'Email is required'])->setStatusCode(422);
+        // Apply validation from config
+        if (!$this->validate(config('Validation')->forgotPassword, $data)) {
+            return $this->response->setJSON(['errors' => $this->validator->getErrors()])->setStatusCode(422);
         }
+
+        $email = $data['email'];
 
         $user = $userModel->where('email', $email)->first();
         if (!$user) {
@@ -236,26 +241,17 @@ class Auth extends BaseController
         $contentType = $this->request->getHeaderLine('Content-Type');
         if (strpos($contentType, 'application/json') !== false) {
             $data = $this->request->getJSON(true);
-            $token = $data['token'] ?? null;
-            $newPassword = $data['password'] ?? $data['password_hash'] ?? null;
         } else {
-            $token = $this->request->getVar('token');
-            $newPassword = $this->request->getVar('password') ?? $this->request->getVar('password_hash');
+            $data = $this->request->getPost();
         }
 
-        // Validate required fields
-        if (!$token || !$newPassword) {
-            return $this->response->setJSON([
-                'error' => 'Token and new password are required'
-            ])->setStatusCode(422);
+        // Apply validation from config
+        if (!$this->validate(config('Validation')->resetPassword, $data)) {
+            return $this->response->setJSON(['errors' => $this->validator->getErrors()])->setStatusCode(422);
         }
 
-        // Validate password strength
-        if (strlen($newPassword) < 8) {
-            return $this->response->setJSON([
-                'error' => 'Password must be at least 8 characters long'
-            ])->setStatusCode(422);
-        }
+        $token = $data['token'];
+        $newPassword = $data['password'];
 
         $reset = $resetModel
             ->where('token', $token)

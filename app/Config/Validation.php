@@ -54,4 +54,55 @@ class Validation extends BaseConfig
         'password_hash'  => 'required|min_length[8]',
         'role_id'        => 'required|integer|is_not_unique[user_roles.id]'
     ];
+
+    /**
+     * Auth login validation rules
+     *
+     * @var array<string, string>
+     */
+    public array $login = [
+        'email'          => 'required|valid_email',
+        'password_hash'  => 'required'
+    ];
+
+    /**
+     * Auth registration validation rules
+     *
+     * @var array<string, string>
+     */
+    public array $register = [
+        'first_name'     => 'required|min_length[2]|max_length[100]',
+        'last_name'      => 'required|min_length[2]|max_length[100]',
+        'email'          => 'required|valid_email|is_unique[users.email]',
+        'password_hash'  => 'required|min_length[8]',
+        'role_id'        => 'required|integer|is_not_unique[user_roles.id]'
+    ];
+
+    /**
+     * Forgot password validation rules
+     *
+     * @var array<string, string>
+     */
+    public array $forgotPassword = [
+        'email' => 'required|valid_email'
+    ];
+
+    /**
+     * Reset password validation rules
+     *
+     * @var array<string, string>
+     */
+    public array $resetPassword = [
+        'token'    => 'required',
+        'password' => 'required|min_length[8]'
+    ];
+
+    /**
+     * Refresh token validation rules
+     *
+     * @var array<string, string>
+     */
+    public array $refreshToken = [
+        'refresh_token' => 'required'
+    ];
 }
