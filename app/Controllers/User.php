@@ -40,7 +40,7 @@ class User extends BaseController
             $data = $this->request->getPost();
         }
 
-        if (!$this->validate($userModel->getValidationRules())) {
+        if (!$this->validate(config('Validation')->user)) {
             return $this->response->setJSON(['errors' => $this->validator->getErrors()])->setStatusCode(422);
         }
 
@@ -62,8 +62,8 @@ class User extends BaseController
             $data = $this->request->getPost();
         }
 
-        // Get all rules from model
-        $allRules = $userModel->getValidationRules();
+        // Get all rules from validation config
+        $allRules = config('Validation')->user;
         $rules = [];
 
         foreach (array_keys($data) as $field) {

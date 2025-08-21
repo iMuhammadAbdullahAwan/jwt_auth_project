@@ -41,4 +41,17 @@ class Validation extends BaseConfig
     // --------------------------------------------------------------------
     // Rules
     // --------------------------------------------------------------------
+
+    /**
+     * User validation rules
+     *
+     * @var array<string, string>
+     */
+    public array $user = [
+        'first_name'     => 'required|min_length[2]|max_length[100]',
+        'last_name'      => 'required|min_length[2]|max_length[100]',
+        'email'          => 'required|valid_email',
+        'password_hash'  => 'required|min_length[8]',
+        'role_id'        => 'required|integer|is_not_unique[user_roles.id]'
+    ];
 }
